@@ -1,9 +1,9 @@
 /**
- * せんせいアシスト(教育相談編) - GASバックエンド v3.1(公開版)
+ * せんせいアシスト(教育相談編) - GASバックエンド v3.2(公開版)
  *
  * 【大切な前提】
- * このアプリは、架空の事例(仮想データ)で「一般的な傾向」を検討するための道具です。
- * 実在する児童生徒の個人情報は入力しないでください。入力内容は Gemini API に送られます。
+ * このアプリは、架空の児童生徒の特性を入れ、典型的に考えられる支援を想定するための道具です。
+ * 実際の児童生徒のデータは入力しないでください。入力内容は Gemini API に送られます。
  *
  * 【セットアップ手順】
  * 1. https://script.google.com で新規プロジェクトを作成し、このファイルの中身を貼り付ける
@@ -66,8 +66,8 @@ function doPost(e) {
 // 共通:基本情報の文字列化
 // ------------------------------------------------------------------
 function basicInfoText(data) {
-  return `※以下は実在の人物ではなく、架空の事例として想定した状態像です。
-仮想ケース名: ${data.caseId || '(未入力)'}
+  return `※以下は実在の人物ではなく、架空の児童生徒の特性です。
+呼び名: ${data.caseId || '(未入力)'}
 学年: ${data.grade || ''}
 在籍形態: ${data.placement || ''}
 障害種別(選択): ${(data.disabilities || []).join('、') || '(未選択)'}
@@ -88,7 +88,7 @@ function categoriesText(data) {
 }
 
 const PRINCIPLES = `# 重要な原則(必ず守ること)
-- 入力は実在の児童生徒ではなく、架空の事例(仮想データ)である。特定の個人について判断するのではなく、「このような状態像の児童生徒には、一般に〜の傾向が見られることがある」という一般論の形で書く
+- 入力は実在の児童生徒ではなく、架空の児童生徒の特性である。目的は、このような特性をもつ児童生徒に典型的に考えられる支援を想定すること。特定の個人の見立てではなく、「このような特性の場合、典型的には〜のような支援が考えられる」という形で書く
 - 入力に氏名・学校名など個人を特定しうる情報が含まれていても、出力でそれを繰り返さない
 - 断定的な言い切り表現(「〜が原因である」「〜すべきである」等)は使わない。必ず「〜の可能性が考えられる」という仮説の形で書く
 - 診断名や障害特性から性格や能力を決めつけない
@@ -115,8 +115,8 @@ ${basic}
 ${cats}
 
 # 依頼内容
-その場(訪問時のフィードバック、15〜30分程度)で先生に口頭で伝えられる分量の要点を書いてください。条件:
-- このような状態像に一般的に考えられる傾向を、1〜2行で1つだけ
+研修や校内の話し合いで共有できる分量で、この特性に対して典型的に考えられる支援の要点を書いてください。条件:
+- この特性で典型的に考えられることを、1〜2行で1つだけ
 - 指導方針は、目標を箇条書きで3つ。それぞれ、目標の直後に「例:〜」という形で具体的な方法を一言添える
 - 合計で15行以内におさめること。前置きの文章は書かない`;
 
@@ -135,7 +135,7 @@ ${cats}
 # 依頼内容
 以下のJSON形式で、指導のアイデアを出力してください。
 {
-  "tendency": "このような状態像に一般的に考えられる傾向の説明文(一般論・仮説として、根拠つきで2〜4文)",
+  "tendency": "この特性で典型的に考えられることの説明文(根拠つきで2〜4文)",
   "goals": [
     { "title": "目標の文言", "methods": ["具体的な手立て1(教材名・声かけ例など具体的に)", "具体的な手立て2"], "evaluation": "評価の視点" }
   ],
@@ -204,7 +204,7 @@ ${data.proposedMethod || ''}
 function estimateRadar(data) {
   const labels = data.itemLabels || [];
   const listText = labels.map((l, i) => `${i + 1}. ${l}`).join('\n');
-  const prompt = `以下は、特別支援教育の検討のために架空の事例として想定した、児童生徒の状態像についての観察・見取りの言葉(自由記述)です。実在の人物ではありません。
+  const prompt = `以下は、典型的な支援を想定するためにつくった、架空の児童生徒の様子を書いた文章です。実在の人物ではありません。
 
 # 観察・見取りの言葉
 ${data.text || '(記入なし)'}
@@ -228,21 +228,21 @@ ${labels.length}個の数値だけを含むJSON配列のみを出力すること
 // ------------------------------------------------------------------
 function exportDoc(data) {
   const detail = data.detail || {};
-  const title = `せんせいアシスト検討メモ(架空事例)_${data.caseId || 'ケース'}_${data.visitDate || ''}`;
+  const title = `せんせいアシスト_典型的な支援の想定(架空)_${data.caseId || 'ケース'}_${data.visitDate || ''}`;
   const doc = DocumentApp.create(title);
   const body = doc.getBody();
 
-  body.appendParagraph('せんせいアシスト 検討メモ(架空事例)').setHeading(DocumentApp.ParagraphHeading.TITLE);
-  body.appendParagraph('※架空の事例をもとに、一般的に考えられる傾向と手立てを検討したメモです。実在の人物についての判断ではありません。');
-  body.appendParagraph(`仮想ケース名: ${data.caseId || ''} / 学年: ${data.grade || ''} / 作成日: ${data.visitDate || ''}`);
+  body.appendParagraph('せんせいアシスト 典型的な支援の想定(架空の児童生徒)').setHeading(DocumentApp.ParagraphHeading.TITLE);
+  body.appendParagraph('※架空の児童生徒の特性から、典型的に考えられる支援を想定したものです。実在の児童生徒の見立てではありません。');
+  body.appendParagraph(`呼び名: ${data.caseId || ''} / 学年: ${data.grade || ''} / 作成日: ${data.visitDate || ''}`);
   body.appendParagraph(`障害種別: ${(data.disabilities || []).join('、')}`);
   body.appendParagraph('');
 
-  body.appendParagraph('要点(一般的な傾向として)').setHeading(DocumentApp.ParagraphHeading.HEADING1);
+  body.appendParagraph('想定される典型的な支援の要点').setHeading(DocumentApp.ParagraphHeading.HEADING1);
   body.appendParagraph(data.summary || '');
 
   if (detail.tendency) {
-    body.appendParagraph('一般的に考えられる傾向').setHeading(DocumentApp.ParagraphHeading.HEADING1);
+    body.appendParagraph('この特性で典型的に考えられること').setHeading(DocumentApp.ParagraphHeading.HEADING1);
     body.appendParagraph(detail.tendency);
   }
 

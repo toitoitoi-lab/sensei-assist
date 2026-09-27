@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>せんせいアシスト(教育相談編) - 自立活動 状態把握 v0.16</title>
+<title>せんせいアシスト(教育相談編) - 自立活動 状態把握 v0.17</title>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/Chart.js/4.4.1/chart.umd.js"></script>
 <style>
   * { box-sizing: border-box; }
@@ -194,14 +194,14 @@
 </head>
 <body>
 <div class="wrap">
-  <h1>せんせいアシスト <span style="font-weight:400; color:#7d8096; font-size:15px;">教育相談編 ― 自立活動 状態把握(v0.16)</span></h1>
+  <h1>せんせいアシスト <span style="font-weight:400; color:#7d8096; font-size:15px;">教育相談編 ― 自立活動 状態把握(v0.17)</span></h1>
   <div class="subtitle">27項目をざっくり動かして、レーダーチャートで全体像を見る</div>
 
   <div class="card notice" role="note" aria-labelledby="notice-title">
-    <h2 id="notice-title">はじめに：架空の事例で使う道具です</h2>
-    <p>このアプリは、<strong>架空の事例（仮想データ）</strong>をもとに、「このような状態像の児童生徒には、一般にこんな傾向や手立てが考えられる」という<strong>一般論</strong>を検討するための道具です。</p>
-    <p>実在する児童生徒の<strong>氏名・学校名・具体的な出来事など、個人が特定できる情報は入力しないでください</strong>。入力した内容は、AI（Gemini）に送られます。</p>
-    <p>AIの出力は仮説です。実際の判断は、本人・保護者・関係者と話し合いながら、専門的な見立てにもとづいて行ってください。</p>
+    <h2 id="notice-title">はじめに：架空の児童生徒で、典型的な支援を想定する道具です</h2>
+    <p>このアプリは、<strong>架空の児童生徒</strong>の特性（学年、障害種別、自立活動の各項目の様子など）を入れ、<strong>そのような特性をもつ児童生徒に典型的に考えられる支援</strong>を想定するためのものです。研修や校内での話し合い、支援の引き出しを増やす練習に使えます。</p>
+    <p><strong>実際の児童生徒のデータは入力しないでください。</strong>氏名や記号に置きかえても、実在の児童生徒の様子をもとにした入力はしないでください。入力した内容は、AI（Gemini）に送られます。</p>
+    <p>出てくるのは、架空の特性から想定した典型的な支援の例です。特定の児童生徒の見立てや指導方針として使うものではありません。</p>
     <div style="text-align:right; margin-top:8px;"><button type="button" class="ghost-btn" onclick="loadSample()">架空の例を入れてみる</button></div>
   </div>
 
@@ -209,8 +209,8 @@
     <h2>基本情報</h2>
     <div class="basic-grid">
       <div>
-        <label for="caseId">仮想ケース名(架空の名前・記号)</label>
-        <input type="text" id="caseId" placeholder="例: 架空ケースA">
+        <label for="caseId">架空の児童生徒の呼び名</label>
+        <input type="text" id="caseId" placeholder="例: 架空のAさん">
       </div>
       <div>
         <label for="grade">学年</label>
@@ -246,10 +246,10 @@
       </div>
     </div>
     <div class="chip-field">
-      <label id="dis-label">想定する障害種別(複数選択・重複障害対応)</label>
+      <label id="dis-label">架空の児童生徒の障害種別(複数選択・重複障害対応)</label>
       <div class="chips-multi" id="disabilityChips" role="group" aria-labelledby="dis-label"></div>
       <div style="margin-top:10px;">
-        <label for="diagnosisText">想定する診断名・病名(任意・一般的な例として)</label>
+        <label for="diagnosisText">想定する診断名・病名(任意)</label>
         <input type="text" id="diagnosisText" placeholder="例: 脳室周囲白質軟化症による脳性麻痺" style="width:100%; padding:8px; font-size:14px; border:1px solid #2a2c3a; border-radius:8px; background:#0e0f14; color:#eceef5;">
       </div>
     </div>
@@ -258,7 +258,7 @@
   <div class="card">
     <h2>自立活動 6区分27項目</h2>
     <div class="chip-field" style="margin-top:0; margin-bottom:16px; padding:12px; background:#0e0f14; border:1px solid #2a2c3a; border-radius:10px;">
-      <label for="observationText">想定する見取り・観察の言葉(架空の例)から27項目を推定(任意・時短用)</label>
+      <label for="observationText">架空の児童生徒の様子(文章)から27項目を推定(任意・時短用)</label>
       <textarea id="observationText" placeholder="例: 移動教室はいつも一番後ろ。挨拶や受け答えははっきりしていて先生とはよく話すが、友達とは1〜2人としか関わらない。学習は前向きだが早く終わらせたがる。" style="width:100%; font-size:13px; padding:8px; border:1px solid #2a2c3a; border-radius:8px; background:#14151d; color:#eceef5; resize:vertical; min-height:60px; font-family:inherit;"></textarea>
       <div style="text-align:right; margin-top:8px;">
         <span class="status-msg" id="estimateStatus"></span>
@@ -724,7 +724,7 @@ function renderAiOutput(summary, detail) {
 
   const summaryBox = document.createElement('div');
   summaryBox.style.cssText = 'white-space:pre-wrap; font-size:14px; line-height:1.9; color:#eceef5; margin-top:14px; padding:14px; background:#0e0f14; border:1px solid #7c5cff; border-radius:10px;';
-  summaryBox.innerHTML = '<div style="font-size:11px; color:#8b7bff; font-weight:700; margin-bottom:8px;">要点(一般的な傾向として)</div>' + escapeHtml(summary || '');
+  summaryBox.innerHTML = '<div style="font-size:11px; color:#8b7bff; font-weight:700; margin-bottom:8px;">想定される典型的な支援の要点</div>' + escapeHtml(summary || '');
   aiOutput.appendChild(summaryBox);
 
   const exportBar = document.createElement('div');
@@ -756,7 +756,7 @@ function renderAiOutput(summary, detail) {
 
   const tendencyBox = document.createElement('div');
   tendencyBox.style.cssText = 'font-size:13px; line-height:1.8; color:#c7c9db; padding:12px 14px; background:#0e0f14; border:1px solid #23242f; border-radius:10px; margin-bottom:12px;';
-  tendencyBox.innerHTML = '<div style="font-size:11px; color:#9d9fe8; font-weight:700; margin-bottom:6px;">一般的に考えられる傾向</div>' + escapeHtml(detail.tendency || '');
+  tendencyBox.innerHTML = '<div style="font-size:11px; color:#9d9fe8; font-weight:700; margin-bottom:6px;">この特性で典型的に考えられること</div>' + escapeHtml(detail.tendency || '');
   detailBox.appendChild(tendencyBox);
 
   (detail.goals || []).forEach(goal => renderGoalCard(detailBox, goal));
@@ -902,9 +902,9 @@ function renderGoalCard(container, goal) {
   container.appendChild(card);
 }
 
-// 架空の例(実在の人物ではありません)
+// 架空の児童生徒の例(実在の人物をもとにしていません)
 function loadSample() {
-  document.getElementById('caseId').value = '架空ケースA';
+  document.getElementById('caseId').value = '架空のAさん';
   document.getElementById('grade').value = '中学部';
   document.getElementById('placement').value = '特別支援学級';
   document.getElementById('diagnosisText').value = '';
