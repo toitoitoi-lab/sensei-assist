@@ -1,5 +1,5 @@
 /**
- * せんせいアシスト(教育相談編) - GASバックエンド v3.2(公開版)
+ * せんせいアシスト(教育相談編) - GASバックエンド v3.3(公開版)
  *
  * 【大切な前提】
  * このアプリは、架空の児童生徒の特性を入れ、典型的に考えられる支援を想定するための道具です。
@@ -13,8 +13,9 @@
  *    ※コードを更新した場合は「デプロイを管理」→編集→新バージョンで再デプロイが必要
  * 4. Googleドキュメント出力機能を使うため、初回実行時に権限の承認を求められたら許可してください
  *    (ドキュメントは、デプロイした人自身のGoogleドライブに作成されます)
- * 5. 「アクセスできるユーザー:全員」にすると、URLを知っている人は誰でもあなたのAPI利用枠を使えます。
- *    URLは自分と信頼できる人だけで共有し、公開の場に書かないでください。
+ * 5. 「アクセスできるユーザー:全員」にすると、URLを知っている人は誰でも呼び出せます。
+ *    スクリプト プロパティに APP_KEY(合言葉)を設定し、アプリの「合言葉」欄に同じものを入れてください。
+ *    合言葉が違う呼び出しは、AI にもドキュメント作成にも進まずに止まります。
  */
 
 // 使えるモデル名は変わることがあります。エラーになったら 'gemini-flash-latest' などに書きかえてください。
@@ -36,6 +37,11 @@ function doGet(e) {
 function doPost(e) {
   try {
     const data = JSON.parse(e.postData.contents);
+    const appKey = PropertiesService.getScriptProperties().getProperty('APP_KEY');
+    if (appKey && data.appKey !== appKey) {
+      throw new Error('合言葉が違います。アプリの「合言葉」欄を確認してください。');
+    }
+    delete data.appKey;
     let result;
     switch (data.action) {
       case 'estimate_radar':

@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>せんせいアシスト(教育相談編) - 自立活動 状態把握 v0.17</title>
+<title>せんせいアシスト(教育相談編) - 自立活動 状態把握 v0.18</title>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/Chart.js/4.4.1/chart.umd.js"></script>
 <style>
   * { box-sizing: border-box; }
@@ -189,19 +189,32 @@
   .notice { border-color: #22d3ee; }
   .notice h2 { color: #22d3ee; text-transform: none; letter-spacing: 0.02em; font-size: 15px; }
   .notice p { font-size: 14px; line-height: 1.8; margin: 0 0 6px; color: #d5d7e6; }
+  .notice-more { margin-top: 8px; font-size: 13.5px; color: #d5d7e6; }
+  .notice-more summary { cursor: pointer; color: #22d3ee; font-weight: 700; padding: 4px 0; }
+  .notice-more ul { margin: 8px 0 0; padding-left: 20px; line-height: 1.8; }
   .ghost-btn { font-size: 13px; font-weight: 700; padding: 8px 16px; border-radius: 10px; border: 1px solid #22d3ee; background: transparent; color: #22d3ee; cursor: pointer; font-family: inherit; }
 </style>
 </head>
 <body>
 <div class="wrap">
-  <h1>せんせいアシスト <span style="font-weight:400; color:#7d8096; font-size:15px;">教育相談編 ― 自立活動 状態把握(v0.17)</span></h1>
+  <h1>せんせいアシスト <span style="font-weight:400; color:#7d8096; font-size:15px;">教育相談編 ― 自立活動 状態把握(v0.18)</span></h1>
   <div class="subtitle">27項目をざっくり動かして、レーダーチャートで全体像を見る</div>
 
   <div class="card notice" role="note" aria-labelledby="notice-title">
     <h2 id="notice-title">はじめに：架空の児童生徒で、典型的な支援を想定する道具です</h2>
     <p>このアプリは、<strong>架空の児童生徒</strong>の特性（学年、障害種別、自立活動の各項目の様子など）を入れ、<strong>そのような特性をもつ児童生徒に典型的に考えられる支援</strong>を想定するためのものです。研修や校内での話し合い、支援の引き出しを増やす練習に使えます。</p>
     <p><strong>実際の児童生徒のデータは入力しないでください。</strong>氏名や記号に置きかえても、実在の児童生徒の様子をもとにした入力はしないでください。入力した内容は、AI（Gemini）に送られます。</p>
-    <p>出てくるのは、架空の特性から想定した典型的な支援の例です。特定の児童生徒の見立てや指導方針として使うものではありません。</p>
+    <p>出てくるのは、架空の特性から想定した典型的な支援の例です。特定の児童生徒の見立てや指導方針として使うものではなく、診断や医学的な判断を行うものでもありません。AIの出力には誤りが含まれることがあります。</p>
+    <details class="notice-more">
+      <summary>入力した内容はどこへ行くか・使うときの決まり</summary>
+      <ul>
+        <li><strong>運営者（toi toi toi）は、入力内容を受け取りません。</strong>入力は、使う人のブラウザから、その人が自分でデプロイした Google Apps Script を通して、Google の Gemini API に送られます。</li>
+        <li><strong>Gemini API の無料枠では、送った内容が Google の製品改善に使われ、人が読むことがあります</strong>（Google の Gemini API 追加利用規約）。有料枠ではこの利用はされません。どちらの場合も、実際の児童生徒のデータは入れないでください。</li>
+        <li>Gemini API は18歳未満は使えません。<strong>教職員など大人が使う道具</strong>です。児童生徒には使わせないでください。</li>
+        <li>学校で使うときは、所属する教育委員会の情報セキュリティポリシーや、生成AIの利用に関する決まりに従ってください。</li>
+        <li>このブラウザには、GAS の URL と合言葉だけを保存します（ほかの入力は保存しません）。「JSONで保存」「Googleドキュメントにする」を押したときだけ、結果が自分のパソコンやドライブに残ります。</li>
+      </ul>
+    </details>
     <div style="text-align:right; margin-top:8px;"><button type="button" class="ghost-btn" onclick="loadSample()">架空の例を入れてみる</button></div>
   </div>
 
@@ -305,6 +318,10 @@
         <label for="gasUrl">GAS WebアプリのURL(自分でデプロイしたURLを貼り付け。このブラウザにだけ保存されます)</label>
         <input type="text" id="gasUrl" placeholder="https://script.google.com/macros/s/.../exec">
       </div>
+      <div style="grid-column: 1 / -1;">
+        <label for="appKey">合言葉(GAS の APP_KEY に設定したもの。このブラウザにだけ保存されます)</label>
+        <input type="password" id="appKey" autocomplete="off">
+      </div>
     </div>
     <div class="save-bar" style="margin-top:0;">
       <span class="status-msg" id="aiStatus"></span>
@@ -327,7 +344,14 @@ const DEFAULT_GAS_URL = '';
   try { saved = localStorage.getItem('senseiAssistGasUrl') || ''; } catch (e) {}
   el.value = DEFAULT_GAS_URL || saved;
   el.addEventListener('change', () => { try { localStorage.setItem('senseiAssistGasUrl', el.value.trim()); } catch (e) {} });
+  const k = document.getElementById('appKey');
+  try { k.value = localStorage.getItem('senseiAssistAppKey') || ''; } catch (e) {}
+  k.addEventListener('change', () => { try { localStorage.setItem('senseiAssistAppKey', k.value); } catch (e) {} });
 })();
+// GAS に送るときは、合言葉を添える
+function withKey(obj) {
+  return JSON.stringify(Object.assign({}, obj, { appKey: document.getElementById('appKey').value }));
+}
 
 // --- 月曜始まりカレンダー ---
 const visitDateInput = document.getElementById('visitDate');
@@ -622,7 +646,7 @@ async function estimateRadar() {
     cats.forEach(c => c.items.forEach(it => itemLabels.push(`${c.name}:${it.label}`)));
     const res = await fetch(gasUrl, {
       method: 'POST',
-      body: JSON.stringify({ action: 'estimate_radar', text: text, itemLabels: itemLabels })
+      body: withKey({ action: 'estimate_radar', text: text, itemLabels: itemLabels })
     });
     const json = await res.json();
     if (json.ok && Array.isArray(json.values)) {
@@ -698,7 +722,7 @@ async function askAi() {
   aiStatus.textContent = '相談中です…(数十秒かかることがあります)';
   aiOutput.innerHTML = '';
   try {
-    const res = await fetch(gasUrl, { method: 'POST', body: JSON.stringify(buildStateData()) });
+    const res = await fetch(gasUrl, { method: 'POST', body: withKey(buildStateData()) });
     const json = await res.json();
     if (json.ok) {
       renderAiOutput(json.summary, json.detail);
@@ -726,6 +750,10 @@ function renderAiOutput(summary, detail) {
   summaryBox.style.cssText = 'white-space:pre-wrap; font-size:14px; line-height:1.9; color:#eceef5; margin-top:14px; padding:14px; background:#0e0f14; border:1px solid #7c5cff; border-radius:10px;';
   summaryBox.innerHTML = '<div style="font-size:11px; color:#8b7bff; font-weight:700; margin-bottom:8px;">想定される典型的な支援の要点</div>' + escapeHtml(summary || '');
   aiOutput.appendChild(summaryBox);
+  const caution = document.createElement('div');
+  caution.style.cssText = 'font-size:11.5px; color:#8b8fa3; margin-top:6px;';
+  caution.textContent = '架空の特性から想定した典型例です。AIの出力には誤りが含まれることがあります。';
+  aiOutput.appendChild(caution);
 
   const exportBar = document.createElement('div');
   exportBar.style.cssText = 'display:flex; gap:8px; margin-top:10px;';
@@ -775,7 +803,7 @@ async function exportToDoc() {
   try {
     const res = await fetch(lastGasUrl, {
       method: 'POST',
-      body: JSON.stringify(Object.assign(buildStateData(), {
+      body: withKey(Object.assign(buildStateData(), {
         action: 'export_doc', summary: lastSummary, detail: lastDetail
       }))
     });
@@ -819,7 +847,7 @@ function renderGoalCard(container, goal) {
       try {
         const res = await fetch(lastGasUrl, {
           method: 'POST',
-          body: JSON.stringify(Object.assign(buildStateData(), {
+          body: withKey(Object.assign(buildStateData(), {
             action: 'more_methods', goalTitle: goal.title,
             existingMethods: goal.methods || [], count: 1
           }))
@@ -856,7 +884,7 @@ function renderGoalCard(container, goal) {
     try {
       const res = await fetch(lastGasUrl, {
         method: 'POST',
-        body: JSON.stringify(Object.assign(buildStateData(), {
+        body: withKey(Object.assign(buildStateData(), {
           action: 'more_methods', goalTitle: goal.title, existingMethods: goal.methods || [], count: 2
         }))
       });
@@ -886,7 +914,7 @@ function renderGoalCard(container, goal) {
     try {
       const res = await fetch(lastGasUrl, {
         method: 'POST',
-        body: JSON.stringify(Object.assign(buildStateData(), {
+        body: withKey(Object.assign(buildStateData(), {
           action: 'comment_method', goalTitle: goal.title, proposedMethod: proposed
         }))
       });
