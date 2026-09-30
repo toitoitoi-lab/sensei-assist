@@ -1,6 +1,9 @@
 /**
- * せんせいアシスト(仮想の児童生徒で支援を学ぶ) - GASバックエンド v1.1(公開版)
- * (v1.1: チャートの形から架空の児童生徒のすがたを言葉にする describe_shape を追加。版の数字を自分用と合わせました)
+ * せんせいアシスト(仮想の児童生徒で支援を学ぶ) - GASバックエンド v1.1.2(公開版)
+ * (v1.1:   チャートの形から架空の児童生徒のすがたを言葉にする describe_shape を追加。版の数字を自分用と合わせました)
+ * (v1.1.2: Geminiが混雑(503)・回数制限(429)のとき、自動で待って再試行し、別のモデルに切り替える。
+ *          スクリプト プロパティ GEMINI_MODELS に「モデル名,モデル名」と書けば、コードを直さずにモデルを差し替えられる。
+ *          AIの返事の形が崩れていても受け取れるよう、返事を整えてからアプリに返す)
  *
  * 【大切な前提】
  * このアプリは、架空の児童生徒の特性を入れ、典型的に考えられる支援を想定するための道具です。
@@ -19,7 +22,7 @@
  *    合言葉が違う呼び出しは、AI にもドキュメント作成にも進まずに止まります。
  */
 
-// 使えるモデル名は変わることがあります。エラーになったら 'gemini-flash-latest' などに書きかえてください。
+// 使えるモデル名は変わることがあります。うまく動かないときは、スクリプト プロパティ GEMINI_MODELS で差し替えられます。
 const GEMINI_MODEL = 'gemini-3.5-flash';
 
 // 権限確認用(初回だけ、これを実行して承認画面が出たら許可してください。
@@ -36,7 +39,9 @@ function doGet(e) {
 }
 
 function doPost(e) {
+  requestStartedAt = Date.now();
   try {
+    if (!e || !e.postData) throw new Error('アプリからの呼び出しではありません(エディタで doPost を直接実行した場合はこのエラーになります)。');
     const data = JSON.parse(e.postData.contents);
     const appKey = PropertiesService.getScriptProperties().getProperty('APP_KEY');
     if (appKey && data.appKey !== appKey) {
@@ -46,13 +51,13 @@ function doPost(e) {
     let result;
     switch (data.action) {
       case 'estimate_radar':
-        result = { ok: true, values: estimateRadar(data) };
+        result = { ok: true, values: normalizeValues(estimateRadar(data), (data.itemLabels || []).length) };
         break;
       case 'describe_shape':
-        result = { ok: true, result: describeShape(data) };
+        result = { ok: true, result: normalizeShapeResult(describeShape(data)) };
         break;
       case 'more_methods':
-        result = { ok: true, methods: moreMethods(data) };
+        result = { ok: true, methods: normalizeMethods(moreMethods(data)) };
         break;
       case 'comment_method':
         result = { ok: true, comment: commentMethod(data) };
@@ -62,14 +67,74 @@ function doPost(e) {
         break;
       default:
         const consultResult = consult(data);
-        result = { ok: true, summary: consultResult.summary, detail: consultResult.detail };
+        result = { ok: true, summary: consultResult.summary, detail: normalizeDetail(consultResult.detail) };
     }
     return ContentService.createTextOutput(JSON.stringify(result)).setMimeType(ContentService.MimeType.JSON);
   } catch (err) {
     return ContentService
-      .createTextOutput(JSON.stringify({ ok: false, error: String(err) }))
+      .createTextOutput(JSON.stringify({ ok: false, error: (err && err.message) ? err.message : String(err) }))
       .setMimeType(ContentService.MimeType.JSON);
   }
+}
+
+// ------------------------------------------------------------------
+// AIの返事の形を整える(v1.1.2)
+// 例: 配列のはずが {"values":[...]} で返ってくる、数が足りない、などを吸収する
+// ------------------------------------------------------------------
+function firstArray(x, keys) {
+  if (Array.isArray(x)) return x;
+  if (x && typeof x === 'object') {
+    for (const k of keys) if (Array.isArray(x[k])) return x[k];
+    const found = Object.keys(x).map(k => x[k]).find(v => Array.isArray(v));
+    if (found) return found;
+  }
+  return [];
+}
+
+function normalizeValues(raw, n) {
+  const arr = firstArray(raw, ['values', 'scores', 'items']).map(v => {
+    const x = (v && typeof v === 'object') ? (v.value !== undefined ? v.value : v.score) : v;
+    if (x === null || x === undefined || x === '') return 50;   // 空は「判断不可(50)」。0(支援が要る)にしない
+    const num = Number(x);
+    return isFinite(num) ? Math.max(0, Math.min(100, Math.round(num))) : 50;
+  });
+  if (!arr.length) throw new Error('AIの返事から数値を読み取れませんでした。もう一度押してください。');
+  while (arr.length < n) arr.push(50);   // 足りない分は「判断不可(50)」で埋める
+  return n ? arr.slice(0, n) : arr;
+}
+
+function normalizeMethods(raw) {
+  const arr = firstArray(raw, ['methods', 'items', 'suggestions'])
+    .map(m => (m && typeof m === 'object') ? (m.text || m.method || m.title || JSON.stringify(m)) : m)
+    .map(m => String(m || '').trim())
+    .filter(Boolean);
+  if (!arr.length) throw new Error('AIの返事から手立てを読み取れませんでした。もう一度押してください。');
+  return arr;
+}
+
+function normalizeShapeResult(raw) {
+  const r = (raw && typeof raw === 'object' && !Array.isArray(raw)) ? raw : {};
+  const guesses = firstArray(r, ['guesses', 'questions', 'items']).slice(0, 3).map(g => ({
+    scene: String((g && g.scene) || '場面').slice(0, 12),
+    text: String((g && (g.text || g.question)) || (typeof g === 'string' ? g : '')).trim()
+  })).filter(g => g.text);
+  const outline = String(r.outline || r.summary || '').trim();
+  if (!outline && !guesses.length) throw new Error('AIの返事から文章を読み取れませんでした。もう一度押してください。');
+  return { outline: outline, guesses: guesses };
+}
+
+function normalizeDetail(raw) {
+  const r = (raw && typeof raw === 'object' && !Array.isArray(raw)) ? raw : {};
+  const goals = firstArray(r, ['goals']).slice(0, 3).map(g => ({
+    title: String((g && (g.title || g.goal)) || '').trim(),
+    methods: firstArray(g, ['methods', 'steps']).map(m => String(m)).filter(Boolean),
+    evaluation: String((g && g.evaluation) || '').trim()
+  })).filter(g => g.title);
+  return {
+    tendency: String(r.tendency || '').trim(),
+    goals: goals,
+    accommodations: Array.isArray(r.accommodations) ? r.accommodations.join('\n') : String(r.accommodations || '').trim()
+  };
 }
 
 // ------------------------------------------------------------------
@@ -334,7 +399,7 @@ function exportDoc(data) {
     body.appendParagraph('指導方針').setHeading(DocumentApp.ParagraphHeading.HEADING1);
     detail.goals.forEach((g, i) => {
       body.appendParagraph(`${i + 1}. 目標: ${g.title}`).setHeading(DocumentApp.ParagraphHeading.HEADING2);
-      (g.methods || []).forEach(m => body.appendListItem(m).setGlyphType(DocumentApp.GlyphType.BULLET));
+      (g.methods || []).forEach(m => body.appendListItem(String(m)).setGlyphType(DocumentApp.GlyphType.BULLET));
       if (g.evaluation) body.appendParagraph(`評価の視点: ${g.evaluation}`);
     });
   }
@@ -349,48 +414,143 @@ function exportDoc(data) {
 }
 
 // ------------------------------------------------------------------
-// Gemini呼び出し(通常テキスト)
+// Gemini呼び出し(v1.1.2: 混雑時の自動再試行とモデル切り替え)
 // ------------------------------------------------------------------
+// 上から順に試す。1つ目が混雑(503)やレート制限(429)なら次のモデルへ切り替える。
+// スクリプトプロパティ GEMINI_MODELS に「モデル名,モデル名」と書けば、コードを直さずに差し替えられる。
+const DEFAULT_MODELS = [GEMINI_MODEL, 'gemini-flash-latest', 'gemini-flash-lite-latest'];
+const RETRY_WAITS_MS = [3000];         // 同じモデルでの再試行は1回だけ(混雑が続くなら早めに別モデルへ切り替える)
+const TIME_BUDGET_MS = 270000;         // 1回のボタン操作で新しい呼び出しを始めてよい時間(GASの上限6分より手前)
+const ONE_CALL_MAX_MS = 65000;         // Geminiへの1回の呼び出しにかかりうる最長時間の見込み
+let requestStartedAt = Date.now();
+
+function modelList() {
+  const prop = PropertiesService.getScriptProperties().getProperty('GEMINI_MODELS');
+  const list = prop ? prop.split(',').map(s => s.trim()).filter(Boolean) : DEFAULT_MODELS;
+  return list.filter((m, i) => list.indexOf(m) === i);
+}
+
+function timeLeft() {
+  return TIME_BUDGET_MS - (Date.now() - requestStartedAt);
+}
+
 function callGemini(prompt) {
   return callGeminiRaw(prompt, false);
 }
 
-// Gemini呼び出し(JSON強制・パース済みで返す)
+// JSONで返してもらい、読み取ったオブジェクトを返す。形が崩れていたら1回だけ頼み直す
 function callGeminiJson(prompt) {
-  const text = callGeminiRaw(prompt, true);
-  return JSON.parse(text);
+  let lastErr;
+  for (let i = 0; i < 2; i++) {
+    const text = callGeminiRaw(prompt, true);
+    try {
+      return parseJsonLoose(text);
+    } catch (e) {
+      lastErr = e;
+    }
+  }
+  throw new Error('AIの返事をデータとして読み取れませんでした。もう一度押してください。(' + String(lastErr).slice(0, 80) + ')');
+}
+
+function parseJsonLoose(text) {
+  const t = String(text).replace(/```json|```/g, '').trim();
+  try {
+    return JSON.parse(t);
+  } catch (e) {
+    const a = t.search(/[\[{]/);
+    const b = Math.max(t.lastIndexOf(']'), t.lastIndexOf('}'));
+    if (a >= 0 && b > a) return JSON.parse(t.slice(a, b + 1));
+    throw e;
+  }
 }
 
 function callGeminiRaw(prompt, forceJson) {
   const apiKey = PropertiesService.getScriptProperties().getProperty('GEMINI_API_KEY');
   if (!apiKey) throw new Error('GEMINI_API_KEYが設定されていません。スクリプトプロパティを確認してください。');
 
-  const url = `https://generativelanguage.googleapis.com/v1beta/models/${GEMINI_MODEL}:generateContent`;
-  const payload = { contents: [{ parts: [{ text: prompt }] }] };
-  if (forceJson) {
-    payload.generationConfig = { responseMimeType: 'application/json' };
-  }
-  const options = {
-    method: 'post',
-    contentType: 'application/json',
-    headers: { 'x-goog-api-key': apiKey },
-    payload: JSON.stringify(payload),
-    muteHttpExceptions: true
-  };
+  const payload = { contents: [{ role: 'user', parts: [{ text: prompt }] }] };
+  if (forceJson) payload.generationConfig = { responseMimeType: 'application/json' };
 
-  const response = UrlFetchApp.fetch(url, options);
-  const code = response.getResponseCode();
-  const body = JSON.parse(response.getContentText());
+  const notes = [];
+  const models = modelList();
+  for (let mi = 0; mi < models.length; mi++) {
+    const model = models[mi];
+    for (let attempt = 0; attempt <= RETRY_WAITS_MS.length; attempt++) {
+      if (timeLeft() < ONE_CALL_MAX_MS) {
+        throw new Error('Geminiが混み合っていて、時間内に返事がありませんでした。1〜2分おいてからもう一度押してください。(' + notes.join(' / ') + ')');
+      }
+      const r = fetchGemini(model, payload, apiKey);
 
-  if (code === 429) {
-    throw new Error('APIのレート制限に達しました(無料枠の場合、しばらく待ってから再試行してください)。');
-  }
-  if (code !== 200) {
-    throw new Error('Gemini APIエラー: ' + JSON.stringify(body));
-  }
+      if (r.code === 200) {
+        return extractText(r.body, model);
+      }
+      notes.push(`${model}:${r.code}`);
 
-  const text = body.candidates && body.candidates[0] && body.candidates[0].content
-    ? body.candidates[0].content.parts.map(p => p.text).join('')
-    : '(応答を取得できませんでした)';
+      if (r.code === 400) {
+        throw new Error('Geminiへの依頼の形が正しくありません(400)。' + errorMessage(r));
+      }
+      if (r.code === 401 || r.code === 403) {
+        throw new Error('APIキーが使えない状態です(' + r.code + ')。Google AI Studioでキーを確認してください。' + errorMessage(r));
+      }
+      if (r.code === 404) break;            // このモデル名が無い → 次のモデルへ
+      if (r.code === 429) break;            // このモデルの無料枠を使い切った → 次のモデルへ
+      // 500 / 502 / 503 / 504 など一時的な障害 → 少し待って同じモデルで再試行
+      if (attempt < RETRY_WAITS_MS.length) {
+        Utilities.sleep(Math.min(RETRY_WAITS_MS[attempt] + Math.floor(Math.random() * 1000), Math.max(0, timeLeft() - ONE_CALL_MAX_MS)));
+      }
+    }
+  }
+  if (notes.length && notes.every(n => /:404$/.test(n))) {
+    throw new Error('Geminiのモデル名が見つかりませんでした(廃止された可能性があります)。スクリプトプロパティ GEMINI_MODELS に、今使えるモデル名を書いてください。(' + notes.join(' / ') + ')');
+  }
+  if (notes.length && notes.every(n => /:429$/.test(n))) {
+    throw new Error('Geminiの無料枠の回数制限に達しました。1〜2分おいてからもう一度押してください。(' + notes.join(' / ') + ')');
+  }
+  throw new Error('Geminiが混み合っていて、切り替え先のモデルも含めて返事がありませんでした。1〜2分おいてからもう一度押してください。(' + notes.join(' / ') + ')');
+}
+
+function fetchGemini(model, payload, apiKey) {
+  const url = `https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent`;
+  let res;
+  try {
+    res = UrlFetchApp.fetch(url, {
+      method: 'post',
+      contentType: 'application/json',
+      headers: { 'x-goog-api-key': apiKey },
+      payload: JSON.stringify(payload),
+      muteHttpExceptions: true
+    });
+  } catch (e) {
+    return { code: 503, body: null, raw: String(e) };   // 通信そのものの失敗も一時的な障害として扱う
+  }
+  const raw = res.getContentText();
+  let body = null;
+  try { body = JSON.parse(raw); } catch (e) { /* エラーページ(HTML)などJSONでない返事 */ }
+  let code = res.getResponseCode();
+  if (code === 200 && !body) code = 502;   // 200なのに中身が読めない → 一時的な障害扱い
+  return { code: code, body: body, raw: raw };
+}
+
+function errorMessage(r) {
+  const m = r.body && r.body.error && r.body.error.message;
+  return m ? ' ' + String(m).slice(0, 160) : '';
+}
+
+function extractText(body, model) {
+  const cand = body.candidates && body.candidates[0];
+  if (!cand) {
+    const reason = body.promptFeedback && body.promptFeedback.blockReason;
+    throw new Error('AIが返事をしませんでした' + (reason ? `(理由: ${reason})` : '') + '。入力の言葉を少し変えて試してください。');
+  }
+  const parts = (cand.content && cand.content.parts) || [];
+  const text = parts.filter(p => !p.thought).map(p => p.text || '').join('').trim();
+  if (!text) {
+    const reason = cand.finishReason || '不明';
+    if (reason === 'MAX_TOKENS') throw new Error('AIの返事が長すぎて途中で切れました。もう一度押してください。');
+    if (reason === 'SAFETY' || reason === 'PROHIBITED_CONTENT' || reason === 'BLOCKLIST') {
+      throw new Error('AIの安全フィルターで返事が止められました。入力の言葉を少し変えて試してください。');
+    }
+    throw new Error(`AIの返事が空でした(${reason})。もう一度押してください。`);
+  }
   return text;
 }

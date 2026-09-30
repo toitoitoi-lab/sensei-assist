@@ -267,7 +267,7 @@
 </head>
 <body>
 <div class="wrap">
-  <h1>せんせいアシスト <span style="font-weight:400; color:#7d8096; font-size:15px;">仮想の児童生徒で支援を学ぶ(v1.1)</span></h1>
+  <h1>せんせいアシスト <span style="font-weight:400; color:#7d8096; font-size:15px;">仮想の児童生徒で支援を学ぶ(v1.1.2)</span></h1>
   <div class="subtitle">チャートを指で描くか、言葉で書くか。どちらからでも架空の児童生徒のすがたを描けます</div>
 
   <div class="card notice" role="note" aria-labelledby="notice-title">
@@ -391,7 +391,7 @@
     </div>
     <div class="save-bar" style="margin-top:0;">
       <span class="status-msg" id="aiStatus"></span>
-      <button type="button" onclick="askAi()">この内容から典型的な支援を想定してもらう</button>
+      <button type="button" id="btnAskAi" onclick="askAi()">この内容から典型的な支援を想定してもらう</button>
     </div>
     <div id="aiOutput" aria-live="polite"></div>
   </div>
@@ -702,7 +702,16 @@ async function postGas(payload) {
   const url = gasUrl();
   if (!url) throw new Error('GASのURLが入っていません');
   const res = await fetch(url, { method: 'POST', body: withKey(payload) });
-  return res.json();
+  const raw = await res.text();
+  try {
+    return JSON.parse(raw);
+  } catch (e) {
+    // GASがJSONではなくエラーページ(HTML)を返した場合、その中の説明文を取り出して見せる
+    const doc = new DOMParser().parseFromString(raw, 'text/html');
+    const text = ((doc.title ? doc.title + ' / ' : '') + (doc.body ? doc.body.innerText || doc.body.textContent : ''))
+      .replace(/\s+/g, ' ').trim().slice(0, 200);
+    throw new Error(`GASがエラーページを返しました(状態 ${res.status}): ${text || '(本文なし)'}`);
+  }
 }
 
 // 言葉 → 形
@@ -712,7 +721,7 @@ async function estimateRadar() {
   if (!text) { setStatus(statusEl, '先に、右の欄に先生の言葉を書いてください', true); return; }
   const btn = document.getElementById('btnEstimate');
   btn.disabled = true;
-  setStatus(statusEl, '言葉から形を描いています…');
+  setStatus(statusEl, '言葉から形を描いています…(混み合っているときは自動で再試行するため、1分ほどかかることがあります)');
   try {
     const itemLabels = [];
     cats.forEach(c => c.items.forEach(it => itemLabels.push(`${c.name}:${it.label}`)));
@@ -783,7 +792,7 @@ async function describeShape() {
   }
   const btn = document.getElementById('btnDescribe');
   btn.disabled = true;
-  setStatus(statusEl, '形を言葉にしています…');
+  setStatus(statusEl, '形を言葉にしています…(混み合っているときは自動で再試行するため、1分ほどかかることがあります)');
   try {
     const shape = cats.map((c, ci) => ({
       name: c.name, value: catValue(ci), word: levelWord(catValue(ci)), touched: touched[ci]
@@ -883,7 +892,10 @@ async function askAi() {
     setStatus(aiStatus, '先に、架空の児童生徒のすがた(形か言葉)を入れてください', true);
     return;
   }
-  setStatus(aiStatus, '想定しています…(数十秒かかることがあります)');
+  const btn = document.getElementById('btnAskAi');
+  if (btn.disabled) return;
+  btn.disabled = true;
+  setStatus(aiStatus, '想定しています…(1〜2分かかることがあります。混み合っているときは自動で再試行します)');
   aiOutput.innerHTML = '';
   try {
     const json = await postGas(buildStateData());
@@ -895,6 +907,27 @@ async function askAi() {
     }
   } catch (err) {
     setStatus(aiStatus, '通信エラー: ' + err.message, true);
+  } finally {
+    btn.disabled = false;
+  }
+}
+
+// カード内の小さなボタン用:押している間は押せなくし、失敗したら理由をカードに出す
+async function runBusy(btn, busyLabel, msgEl, fn) {
+  if (btn.disabled) return;
+  const label = btn.textContent;
+  btn.disabled = true;
+  btn.textContent = busyLabel;
+  msgEl.textContent = '';
+  try {
+    const json = await postGas(fn.payload);
+    if (json.ok) fn.onOk(json);
+    else { msgEl.textContent = 'うまくいきませんでした: ' + json.error; }
+  } catch (err) {
+    msgEl.textContent = '通信エラー: ' + err.message;
+  } finally {
+    btn.disabled = false;
+    btn.textContent = label;
   }
 }
 
@@ -1005,22 +1038,19 @@ function renderGoalCard(container, goal) {
     swapBtn.type = 'button';
     swapBtn.textContent = '↻別の案に';
     swapBtn.style.cssText = 'font-size:10px; padding:2px 8px; border-radius:10px; border:1px solid #333; background:#12141b; color:#8b7bff; cursor:pointer; white-space:nowrap; flex-shrink:0;';
-    swapBtn.onclick = async () => {
-      swapBtn.textContent = '…';
-      const idx = goal.methods.indexOf(m);
-      try {
-        const json = await postGas(Object.assign(buildStateData(), {
-          action: 'more_methods', goalTitle: goal.title, existingMethods: goal.methods, count: 1
-        }));
-        if (json.ok && json.methods && json.methods[0]) {
-          const newMethod = json.methods[0];
-          if (idx >= 0) goal.methods[idx] = newMethod;
-          span.textContent = newMethod;
-          m = newMethod;
-        }
-      } catch (e) { /* noop */ }
-      swapBtn.textContent = '↻別の案に';
-    };
+    swapBtn.onclick = () => runBusy(swapBtn, '…', cardMsg, {
+      payload: Object.assign(buildStateData(), {
+        action: 'more_methods', goalTitle: goal.title, existingMethods: goal.methods, count: 1
+      }),
+      onOk: json => {
+        const newMethod = json.methods && json.methods[0];
+        if (!newMethod) return;
+        const idx = goal.methods.indexOf(m);
+        if (idx >= 0) goal.methods[idx] = newMethod;
+        span.textContent = newMethod;
+        m = newMethod;
+      }
+    });
     li.appendChild(span);
     li.appendChild(swapBtn);
     methodsList.appendChild(li);
@@ -1039,17 +1069,17 @@ function renderGoalCard(container, goal) {
   moreBtn.className = 'ghost-btn';
   moreBtn.style.color = '#22d3ee';
   moreBtn.textContent = '手立てを追加してもらう';
-  moreBtn.onclick = async () => {
-    moreBtn.textContent = '提案中…';
-    try {
-      const json = await postGas(Object.assign(buildStateData(), {
-        action: 'more_methods', goalTitle: goal.title, existingMethods: goal.methods, count: 2
-      }));
-      if (json.ok) (json.methods || []).forEach(m => { goal.methods.push(m); addMethodRow(m); });
-    } catch (e) { /* noop */ }
-    moreBtn.textContent = '手立てを追加してもらう';
-  };
+  moreBtn.onclick = () => runBusy(moreBtn, '提案中…', cardMsg, {
+    payload: Object.assign(buildStateData(), {
+      action: 'more_methods', goalTitle: goal.title, existingMethods: goal.methods, count: 2
+    }),
+    onOk: json => (json.methods || []).forEach(m => { goal.methods.push(m); addMethodRow(m); })
+  });
   card.appendChild(moreBtn);
+  const cardMsg = document.createElement('div');
+  cardMsg.className = 'no-print';
+  cardMsg.style.cssText = 'font-size:11px; color:#f87171; margin-top:6px; line-height:1.6;';
+  card.appendChild(cardMsg);
 
   const commentWrap = document.createElement('div');
   commentWrap.className = 'no-print';
@@ -1064,17 +1094,15 @@ function renderGoalCard(container, goal) {
   commentBtn.textContent = 'この案についてコメントをもらう';
   const commentOut = document.createElement('div');
   commentOut.style.cssText = 'font-size:12px; color:#c7c9db; line-height:1.7; margin-top:8px; white-space:pre-wrap;';
-  commentBtn.onclick = async () => {
+  commentBtn.onclick = () => {
     const proposed = commentTa.value.trim();
-    if (!proposed) return;
-    commentBtn.textContent = '考え中…';
-    try {
-      const json = await postGas(Object.assign(buildStateData(), {
+    if (!proposed) { cardMsg.textContent = '先に、上の欄に案を書いてください'; return; }
+    runBusy(commentBtn, '考え中…', cardMsg, {
+      payload: Object.assign(buildStateData(), {
         action: 'comment_method', goalTitle: goal.title, proposedMethod: proposed
-      }));
-      if (json.ok) commentOut.textContent = json.comment;
-    } catch (e) { /* noop */ }
-    commentBtn.textContent = 'この案についてコメントをもらう';
+      }),
+      onOk: json => { commentOut.textContent = json.comment; }
+    });
   };
   commentWrap.appendChild(commentTa);
   commentWrap.appendChild(commentBtn);
