@@ -1,5 +1,6 @@
 /**
- * せんせいアシスト(仮想の児童生徒で支援を学ぶ) - GASバックエンド v3.4(公開版)
+ * せんせいアシスト(仮想の児童生徒で支援を学ぶ) - GASバックエンド v1.1(公開版)
+ * (v1.1: チャートの形から架空の児童生徒のすがたを言葉にする describe_shape を追加。版の数字を自分用と合わせました)
  *
  * 【大切な前提】
  * このアプリは、架空の児童生徒の特性を入れ、典型的に考えられる支援を想定するための道具です。
@@ -47,6 +48,9 @@ function doPost(e) {
       case 'estimate_radar':
         result = { ok: true, values: estimateRadar(data) };
         break;
+      case 'describe_shape':
+        result = { ok: true, result: describeShape(data) };
+        break;
       case 'more_methods':
         result = { ok: true, methods: moreMethods(data) };
         break;
@@ -79,11 +83,30 @@ function basicInfoText(data) {
 障害種別(選択): ${(data.disabilities || []).join('、') || '(未選択)'}
 想定する診断名: ${data.diagnosisText || '(未記入)'}
 指導する先生の得意な指導スタイル: ${(data.teacherStyles || []).join('、') || '(未選択)'}
-指導する先生についての補足: ${data.teacherNote || '(未記入)'}`;
+指導する先生についての補足: ${data.teacherNote || '(未記入)'}
+架空の児童生徒のすがた(言葉): ${data.observationText || '(未記入)'}`;
+}
+
+// チャート上の位置を言葉に置き換える(HTML側と同じ区切り)
+function levelWord(v) {
+  if (v < 20) return 'かなり支援が要る';
+  if (v < 40) return '支援があればできる';
+  if (v < 60) return '場面によってまちまち';
+  if (v < 80) return 'だいたい自分でできる';
+  return 'ほぼ自分でできる';
+}
+
+function categoryAverage(cat) {
+  const items = cat.items || [];
+  if (!items.length) return 50;
+  return Math.round(items.reduce((a, it) => a + Number(it.value || 0), 0) / items.length);
 }
 
 function categoriesText(data) {
   return (data.categories || []).map(cat => {
+    if (cat.touched === false) {
+      return `【${cat.name}】未設定(想定に含まれていない区分。この区分については推測しないこと)`;
+    }
     const itemsText = cat.items.map(it => {
       const chipsText = (it.selectedChips && it.selectedChips.length) ? `補足:${it.selectedChips.join('/')}` : '';
       const noteText = it.note ? `事実記録:${it.note}` : '';
@@ -141,7 +164,7 @@ ${cats}
 # 依頼内容
 以下のJSON形式で、指導のアイデアを出力してください。
 {
-  "tendency": "この特性で典型的に考えられることの説明文(根拠つきで2〜4文)",
+  "tendency": "この特性で典型的に考えられることの説明文(仮説として、根拠つきで2〜4文)",
   "goals": [
     { "title": "目標の文言", "methods": ["具体的な手立て1(教材名・声かけ例など具体的に)", "具体的な手立て2"], "evaluation": "評価の視点" }
   ],
@@ -205,14 +228,14 @@ ${data.proposedMethod || ''}
 }
 
 // ------------------------------------------------------------------
-// アクション4: 見取りの言葉から27項目を推定
+// アクション4: 架空の児童生徒の様子(言葉)から27項目を推定
 // ------------------------------------------------------------------
 function estimateRadar(data) {
   const labels = data.itemLabels || [];
   const listText = labels.map((l, i) => `${i + 1}. ${l}`).join('\n');
   const prompt = `以下は、典型的な支援を想定するためにつくった、架空の児童生徒の様子を書いた文章です。実在の人物ではありません。
 
-# 観察・見取りの言葉
+# 架空の児童生徒の様子
 ${data.text || '(記入なし)'}
 
 # 依頼内容
@@ -230,19 +253,74 @@ ${labels.length}個の数値だけを含むJSON配列のみを出力すること
 }
 
 // ------------------------------------------------------------------
+// アクション4b: チャートの形から児童生徒のすがたを言葉にする(v1.1)
+// ------------------------------------------------------------------
+function describeShape(data) {
+  const shapeText = (data.shape || []).map(s => s.touched
+    ? `- ${s.name}: ${s.word}(目安 ${s.value}/100)`
+    : `- ${s.name}: 未設定(この区分は想定していない)`
+  ).join('\n');
+  const notesText = (data.itemNotes || []).length
+    ? (data.itemNotes || []).map(n => `- ${n}`).join('\n')
+    : '(なし)';
+
+  const prompt = `あなたは、特別支援教育に関わる教員が、不特定の児童生徒を想定した仮想の児童生徒を題材に、支援の考え方を学ぶのを助けるアシスタントです。特定の児童生徒についての相談には使いません。
+教員が、典型的な支援を考えるために想定した架空の児童生徒の全体像を、自立活動6区分のレーダーチャートの「形」として指で描きました。実在の人物ではありません。
+中心に近いほど「かなり支援が要る」、外側ほど「ほぼ自分でできる」を表します。
+これは測定値ではなく、想定のおおまかなイメージです。
+
+# 描かれた形
+${shapeText}
+
+# 項目ごとの補足(あれば)
+${notesText}
+
+# 基本情報
+学年: ${data.grade || ''}
+在籍形態: ${data.placement || ''}
+障害種別(選択): ${(data.disabilities || []).join('、') || '(未選択)'}
+具体的な診断名: ${data.diagnosisText || '(未記入)'}
+すでに書かれている言葉: ${data.observationText || '(なし)'}
+
+# 依頼内容
+この形から想像される架空の児童生徒のすがたを、使う人に「こんな感じですか?」と確かめてもらうための短い文章にしてください。
+- outline: 2〜3文。外側に大きく描かれた区分(できていること・強み)から先に書き、次に内側の区分に触れる。「〜のような児童生徒が考えられます」と仮説の形で書く
+- guesses: ちょうど3つ。それぞれ学校の具体的な場面を1つ選び(例: 朝の会、移動教室、休み時間、授業中の課題、給食、行事の練習)、その場面で見られそうな様子を、観察できる行動の言葉で1文にする。「不安が強い」のような抽象語ではなく「予定が変わると手が止まり、先生の顔を見る」のように書く。文末は「〜ではないですか?」「〜ということはありませんか?」の問いかけにする
+- 未設定の区分については書かない・推測しない
+- 障害種別や診断名は場面を具体的にするためだけに使い、そこから性格や能力を決めつけない
+- すでに書かれている言葉があれば、それと矛盾しないようにする
+
+# 出力形式(厳守)
+{"outline": "文章", "guesses": [{"scene": "場面名(8文字以内)", "text": "問いかけの1文"}]}`;
+
+  return callGeminiJson(prompt);
+}
+
+// ------------------------------------------------------------------
 // アクション5: Googleドキュメントとして出力
 // ------------------------------------------------------------------
 function exportDoc(data) {
   const detail = data.detail || {};
-  const title = `せんせいアシスト_典型的な支援の想定(架空)_${data.caseId || 'ケース'}_${data.visitDate || ''}`;
+  const today = Utilities.formatDate(new Date(), Session.getScriptTimeZone(), 'yyyy-MM-dd');
+  const title = `せんせいアシスト_典型的な支援の想定(架空)_${data.caseId || 'ケース'}_${today}`;
   const doc = DocumentApp.create(title);
   const body = doc.getBody();
 
   body.appendParagraph('せんせいアシスト 典型的な支援の想定(架空の児童生徒)').setHeading(DocumentApp.ParagraphHeading.TITLE);
   body.appendParagraph('※架空の児童生徒の特性から、典型的に考えられる支援を想定したものです。実在の児童生徒の見立てではありません。');
-  body.appendParagraph(`呼び名: ${data.caseId || ''} / 学年: ${data.grade || ''} / 作成日: ${data.visitDate || ''}`);
+  body.appendParagraph(`呼び名: ${data.caseId || ''} / 学年: ${data.grade || ''} / 作成日: ${today}`);
   body.appendParagraph(`障害種別: ${(data.disabilities || []).join('、')}`);
   body.appendParagraph('');
+
+  const shapeLines = (data.categories || [])
+    .filter(cat => cat.touched !== false)
+    .map(cat => `${cat.name}: ${levelWord(categoryAverage(cat))}`);
+  if (data.observationText || shapeLines.length) {
+    body.appendParagraph('架空の児童生徒のすがた(想定)').setHeading(DocumentApp.ParagraphHeading.HEADING1);
+    shapeLines.forEach(l => body.appendListItem(l).setGlyphType(DocumentApp.GlyphType.BULLET));
+    if (data.observationText) body.appendParagraph(data.observationText);
+    body.appendParagraph('※測定値ではなく、想定のおおまかなイメージです。');
+  }
 
   body.appendParagraph('想定される典型的な支援の要点').setHeading(DocumentApp.ParagraphHeading.HEADING1);
   body.appendParagraph(data.summary || '');
